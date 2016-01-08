@@ -1,0 +1,42 @@
+/*
+	RESET & BASIC SETUP
+*/
+
+* {
+	margin: 0; 
+	padding: 0; 
+}
+
+body { 
+	font-family: 'Kaushan Script', cursive;
+	background: white;
+	overflow:auto;
+	overflow-y:hidden;
+}
+
+.blogImage {
+	width: 440px;
+	height: 225px;
+	border: 1px solid #112233;
+}
+/*
+	STRUCTURE
+*/
+.post { 
+	width: 500px;
+	height:400px;	
+	padding:40px;
+	font-size: 20px;
+	background-color: rgba(200, 200, 200, .9);/*rgba(200, 200, 200, .9);/*rgba(255,255,255, .9);*/
+}
+
+/*
+	TYPOGRAPHY
+*/
+/*p { font-size: 1.2em; margin: 0 0 15px 0; }
+h1 { font-family: Helvetica, sans-serif; font-size: 4.0em;
+							  letter-spacing: -1px; color: #ccc; }
+h2 { font-family: Helvetica, sans-serif; font-size: 3.0em;
+							  letter-spacing: -1px; color: #ccc; }
+a { color: #0066cc; }
+a:hover { color: #ccc; }*/

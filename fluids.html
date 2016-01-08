@@ -1,0 +1,480 @@
+
+<html>
+
+<head>
+<title>Home &mdash; Home</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+<script type="text/javascript" src="webgl_utils.js"></script>
+<script type="text/javascript" src="glMatrix.js"></script>
+
+<script id="vertex_Present" type="vertex">
+	attribute vec3 aVPos;
+	attribute vec2 aTexCoord;
+	varying vec2 vTexCoord;
+	
+	void main(void) {
+		gl_Position = vec4(aVPos, 1.);
+		vTexCoord = aTexCoord;
+	}
+</script>
+
+<script id="frag_Present" type="frag">
+    precision mediump float;
+	varying vec2 vTexCoord;
+	uniform sampler2D uSampler;
+	void main(void) {
+		gl_FragColor = texture2D(uSampler, vTexCoord);
+	}
+</script>
+
+
+<script id="force" type="frag">
+    precision highp float;
+	varying vec2 vTexCoord;
+	uniform sampler2D velSampler;
+	void main(void) {
+		gl_FragColor = texture2D(velSampler, vTexCoord);
+	}
+</script>
+
+<script id="advect" type="frag">
+    precision highp float;
+	varying vec2 vTexCoord;
+	uniform sampler2D uVelSampler;
+	uniform sampler2D uAdvectSampler;
+	const float gridStepSize = .001 * (1./512.);
+	void main(void) {
+		vec2 backwardPos = vTexCoord - gridStepSize * texture2D(uVelSampler, vTexCoord).xy;
+		gl_FragColor = texture2D(uAdvectSampler, backwardPos);
+	}
+</script>
+
+<script id="poisson" type="frag">
+    precision highp float;
+	varying vec2 vTexCoord;
+	uniform sampler2D x;
+	uniform sampler2D b;
+	const float h = 1./512.;
+	void main(void) {
+		vec4 val = 
+			texture2D(x, vec2(vTexCoord.x - h, vTexCoord.y)) +
+			texture2D(x, vec2(vTexCoord.x + h, vTexCoord.y)) +
+			texture2D(x, vec2(vTexCoord.x, vTexCoord.y + h)) +
+			texture2D(x, vec2(vTexCoord.x, vTexCoord.y - h));
+
+			float alpha = 0.;
+			float beta = 0.;
+		gl_FragColor = beta * (alpha * texture2D(b, vTexCoord) + val);
+	}
+</script>
+
+<script id="div" type="frag">
+ 	precision highp float;
+	varying vec2 vTexCoord;
+	uniform sampler2D w;
+	const float h = 1./512., n = .5*512.;
+	void main(void) {
+		float val = 
+			texture2D(w, vec2(vTexCoord.x + h, vTexCoord.y)).x - texture2D(w, vec2(vTexCoord.x - h, vTexCoord.y)).x + 
+			texture2D(w, vec2(vTexCoord.x, vTexCoord.y + h)).y - texture2D(w, vec2(vTexCoord.x, vTexCoord.y - h)).y; 
+		gl_FragColor = vec4(n * val);
+	}
+</script>
+
+<script id="grad" type="frag">	
+	precision highp float;
+	varying vec2 vTexCoord;
+	uniform sampler2D p;
+	uniform sampler2D w;
+	const float h = 1./512., n = .5*512.;
+	void main(void) {
+		vec2 val = vec2(
+			texture2D(p, vec2(vTexCoord.x + h, vTexCoord.y)).x - texture2D(p, vec2(vTexCoord.x - h, vTexCoord.y)).x, 
+			texture2D(p, vec2(vTexCoord.x, vTexCoord.y + h)).y - texture2D(p, vec2(vTexCoord.x, vTexCoord.y - h)).y); 
+		gl_FragColor.xy = texture2D(w, vTexCoord).xy - n*val;
+	}
+</script>
+
+
+<script type="text/javascript">
+	"use strict";
+	var PI = 3.14159265359;
+	var gl;
+	var glUtil = {
+		// Variables:
+		projMat: mat4.create(),
+		wVMat: mat4.create(),
+		
+		// Functions:
+		initGL: function(canvas) {
+		try{
+			gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+			gl.viewportWidth = canvas.width;
+			gl.viewportHeight = canvas.height;
+			} catch(e) {}
+			if (!gl) {
+				alert('WebGL could not be init.');
+			}
+			var ext;
+			try { ext = gl.getExtension("OES_texture_float");
+			} catch(e) {}
+			if ( !ext ) {alert(err + "OES_texture_float extension"); return;}
+		},
+		getShader: function(name) {
+			var shaderScript, theSource, currentChild, shader;
+	   
+			shaderScript = document.getElementById(name);
+			if (!shaderScript) {
+				alert("Shader could not be loaded");
+				return null;
+			}
+
+			theSource = "";
+			currentChild = shaderScript.firstChild;
+			while(currentChild) {
+				if (currentChild.nodeType == currentChild.TEXT_NODE) {
+				  theSource += currentChild.textContent;
+				}
+				currentChild = currentChild.nextSibling;
+			}
+			
+			if (shaderScript.type == "vertex") {
+				shader = gl.createShader(gl.VERTEX_SHADER);
+			} else if (shaderScript.type == "frag") {
+				shader = gl.createShader(gl.FRAGMENT_SHADER);
+			} else {
+				alert("Unknown shader type");
+				return null;
+			}
+			
+			gl.shaderSource(shader, theSource);
+			// Compile the shader program
+			gl.compileShader(shader);  
+			 
+			// See if it compiled successfully
+			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {  
+				alert("An error occurred compiling the shaders: " + gl.glUtil.getShaderInfoLog(shader));  
+				return null;  
+			}
+			
+			return shader;
+		},
+		
+		createTexture: function(name, textureFormat, samplingFormat, callback) {
+			var texture = gl.createTexture();
+			var image = new Image();
+			image.onload = function() {
+				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, textureFormat, image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				if (callback) {callback(image.width, image.height, textureFormat, samplingFormat, texture); }
+			}
+			image.src = name;
+			return texture;
+		},
+		// format: gl.UNSIGNED_BYTE, gl.FLOAT
+		createRenderToTexture: function(width, height, textureFormat, samplingFormat, texture) {
+			var out = {};
+			out.frameBuf = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, out.frameBuf);
+			out.frameBuf.width = width;
+			out.frameBuf.height = height;
+			 
+			if (texture) {
+				out.texture = texture;
+			} else {
+				var pixels = [];
+				for (var j = 0; j<out.frameBuf.width; j++) {
+					for (var k = 0; k<out.frameBuf.height; k++) {
+						pixels.push( 0, 0, 0, 0);
+					}
+				}
+				
+				out.texture = gl.createTexture();
+				gl.bindTexture(gl.TEXTURE_2D, out.texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, out.frameBuf.width, out.frameBuf.height, 0, gl.RGBA, textureFormat, new Float32Array(pixels));
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				//gl.generateMipmap(gl.TEXTURE_2D);
+			}
+			var depthBuf = gl.createRenderbuffer();
+			gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuf);
+			gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, out.frameBuf.width, out.frameBuf.height);
+			
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out.texture, 0);
+			gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthBuf);
+			
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			return out;
+		},
+		/*createRenderToTextureFromFile: function(width, height, textureFormat, samplingFormat, file) {
+			//name, textureFormat, samplingFormat, callback) {
+			var texture = createTexture(file, textureFormat, samplingFormat, createRenderToTexture);
+			//createRenderToTexture(width, height, textureFormat, samplingFormat, );
+		}*/
+	};
+
+	// Variables:
+	var vertexBuf;
+	var vertexBuf2;
+	var densityTexture;
+	var texSize = 512.;
+	var rTT;
+	
+	var shaderPresent;
+	var shaderForce;
+	var shaderAdvect;
+	var shaderJacobi;
+	var shaderDiv;
+	var shaderGrad;
+	
+	// Functions:
+	function initBuffers() {
+		var edgeSize = 1.;
+		var vert = [
+			edgeSize,  edgeSize,  0.0, 1., 0.,
+			-edgeSize, edgeSize,  0.0, 0., 0.,
+			edgeSize,  -edgeSize, 0.0, 1., 1.,
+			-edgeSize, -edgeSize, 0.0, 0., 1.
+		];
+		vertexBuf = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vert), gl.STATIC_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		
+		var vert2 = [
+			.5*edgeSize,  .5*edgeSize,  0.0, 1., 0.,
+			-edgeSize, edgeSize,  0.0, 0., 0.,
+			edgeSize,  -edgeSize, 0.0, 1., 1.,
+			-edgeSize, -edgeSize, 0.0, 0., 1.
+		];
+		vertexBuf2 = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuf2);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vert2), gl.STATIC_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	}
+	
+	function initTextures() {
+		rTT = new Array();
+		rTT[0] = glUtil.createRenderToTexture(texSize, texSize, gl.FLOAT, gl.LINEAR);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, rTT[0].texture);
+		rTT[1] = glUtil.createRenderToTexture(texSize, texSize, gl.FLOAT, gl.LINEAR);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, rTT[1].texture);
+		rTT[2] = glUtil.createRenderToTexture(texSize, texSize, gl.FLOAT, gl.LINEAR);
+		gl.activeTexture(gl.TEXTURE2);
+		gl.bindTexture(gl.TEXTURE_2D, rTT[2].texture);
+		rTT[3] = glUtil.createRenderToTexture(texSize, texSize, gl.FLOAT, gl.LINEAR);
+		gl.activeTexture(gl.TEXTURE3);
+		gl.bindTexture(gl.TEXTURE_2D, rTT[3].texture);
+		
+		densityTexture = glUtil.createTexture("density.png", gl.UNSIGNED_BYTE, gl.LINEAR);
+	};
+	
+	function initShaders() {
+		var vertexShader = glUtil.getShader('vertex_Present');
+		var fragShader = glUtil.getShader('frag_Present');
+	
+		// Present
+		shaderPresent = gl.createProgram();
+		gl.attachShader(shaderPresent, vertexShader);
+		gl.attachShader(shaderPresent, fragShader);
+		gl.linkProgram(shaderPresent);
+		if (!gl.getProgramParameter(shaderPresent, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		gl.useProgram(shaderPresent);
+		
+		// Force
+		shaderForce = gl.createProgram();
+		gl.attachShader(shaderForce, vertexShader);
+		gl.attachShader(shaderForce, fragShader);
+		gl.linkProgram(shaderForce);
+		if (!gl.getProgramParameter(shaderForce, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		gl.useProgram(shaderForce);
+		
+		// Advect
+		shaderAdvect = gl.createProgram();
+		fragShader = glUtil.getShader('advect');
+		gl.attachShader(shaderAdvect, vertexShader);
+		gl.attachShader(shaderAdvect, fragShader);
+		gl.linkProgram(shaderAdvect);
+		if (!gl.getProgramParameter(shaderAdvect, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		shaderAdvect.uVelSampler = gl.getUniformLocation(shaderAdvect, "uVelSampler");
+		shaderAdvect.uAdvectSampler = gl.getUniformLocation(shaderAdvect, "uAdvectSampler");
+		
+		// Poisson
+		shaderJacobi = gl.createProgram();
+		fragShader = glUtil.getShader('poisson');
+		gl.attachShader(shaderJacobi, vertexShader);
+		gl.attachShader(shaderJacobi, fragShader);
+		gl.linkProgram(shaderJacobi);
+		if (!gl.getProgramParameter(shaderJacobi, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		shaderJacobi.x = gl.getUniformLocation(shaderJacobi, "x");
+		shaderJacobi.b = gl.getUniformLocation(shaderJacobi, "b");
+		
+		// Div
+		shaderDiv = gl.createProgram();
+		fragShader = glUtil.getShader('div');
+		gl.attachShader(shaderDiv, vertexShader);
+		gl.attachShader(shaderDiv, fragShader);
+		gl.linkProgram(shaderDiv);
+		if (!gl.getProgramParameter(shaderDiv, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		shaderDiv.w = gl.getUniformLocation(shaderDiv, "w");
+	
+		// Grad
+		shaderGrad = gl.createProgram();
+		fragShader = glUtil.getShader('grad');
+		gl.attachShader(shaderGrad, vertexShader);
+		gl.attachShader(shaderGrad, fragShader);
+		gl.linkProgram(shaderGrad);
+		if (!gl.getProgramParameter(shaderGrad, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+		shaderGrad.p = gl.getUniformLocation(shaderGrad, "p");
+		shaderGrad.w = gl.getUniformLocation(shaderGrad, "w");
+		
+		// Bind the vertex and texture data for all shaders
+		shaderPresent.aVPos = gl.getAttribLocation(shaderPresent, "aVPos");
+		shaderPresent.aTexCoord = gl.getAttribLocation(shaderPresent, "aTexCoord");
+		gl.enableVertexAttribArray(shaderPresent.aVPos);
+		gl.enableVertexAttribArray(shaderPresent.aTexCoord);
+		
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuf);
+		gl.vertexAttribPointer(shaderPresent.aVPos, 3, gl.FLOAT, false, 20, 0);
+		gl.vertexAttribPointer(shaderPresent.aTexCoord, 2, gl.FLOAT, false, 20, 12);
+	};
+
+	/*void doFluids() {
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		// Advect
+		gl.bindFramebuffer(gl.FRAMEBUFFER, rTFrameBufs[0]);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, densityTexture);
+		//gl.uniform1i(shaderAdvect., 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		
+		//Apply the first 3 operators in Equation 12.
+		//u = advect(u);
+		//u = diffuse(u);
+		//u = addForces(u);
+		// Now apply the projection operator to the result.
+		//p = computePressure(u);
+		//u = subtractPressureGradient(u, p);
+	};*/
+	
+	// 0 is velocity
+	// 1 is tmp
+	function draw(type) {
+		// Assign initial values
+		
+		// Advect
+		//gl.useProgram(shaderAdvect);
+		//gl.uniform1i(shaderAdvect.uVelSampler, 0);
+		//gl.uniform1i(shaderAdvect.uAdvectSampler, 0);
+		//gl.bindFramebuffer(gl.FRAMEBUFFER, rTT[1].frameBuf);
+		//draw
+		//gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	
+		// 
+	
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+		/*shaderPresent.aVPos = gl.getAttribLocation(shaderPresent, "aVPos");
+		shaderPresent.aTexCoord = gl.getAttribLocation(shaderPresent, "aTexCoord");
+		gl.enableVertexAttribArray(shaderPresent.aVPos);
+		gl.enableVertexAttribArray(shaderPresent.aTexCoord);
+		
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuf);
+		gl.vertexAttribPointer(shaderPresent.aVPos, 3, gl.FLOAT, false, 20, 0);
+		gl.vertexAttribPointer(shaderPresent.aTexCoord, 2, gl.FLOAT, false, 20, 12);*/
+		
+		
+		gl.useProgram(shaderPresent);
+		
+		if (type == 0) {
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, densityTexture);
+			gl.uniform1i(shaderPresent.samplerUniform, 0);
+		} else {
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, rTT[type-1].texture);
+			gl.uniform1i(shaderPresent.samplerUniform, 0);
+		}
+		
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	};
+	
+	function drawScene() {
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, rTT[0].frameBuf);
+		draw(0);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		
+		draw(1);
+	};
+	
+	function webGLStart() {
+		var canvas = document.getElementById('Main Page');
+		glUtil.initGL(canvas);
+   
+		initBuffers();
+		initTextures();
+		initShaders();
+		
+		gl.clearColor(0, 1, 0, 1.);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthFunc(gl.LEQUAL);
+		gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+		
+		window.setTimeout(tick, 100);
+	};
+
+	var couunter = 0;
+	function tick() {
+		++couunter;
+		if (couunter > 5) return ;
+		
+		requestAnimFrame(tick);
+
+		drawScene();
+	};
+	
+	
+	
+	//mat4.perspective(out, fovy, aspect, near, far)
+		//proj = mat4.create(); mat4.perspective(proj, PI/2., gl.viewportWidth / gl.viewportHeight, .1, 100);
+		//mat4.ortho(out, left, right, bottom, top, near, far)
+		//mat4.ortho(glUtil.projMat, -1., 1., -1., 1., 0., 1.);
+		//mat4.translate(glUtil.wVMat, glUtil.wVMat, [0, 0, -1.]);
+		
+	
+	/*
+	//if using mipmapping
+	if (type == 0) {
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+		}*/
+</script>
+
+
+</head>
+
+<body onload="webGLStart();">
+    <canvas id="Main Page" style="border: none;" width="512;" height="512;"></canvas>
+</body>
+<html> 
+
+
+<!--
+<body onload="webGLStart();" style="height: 100%; margin: 0;">
+    <canvas id="Main Page" style="width: 100%; height: 100%;"></canvas>
+  </body>
+</html> -->

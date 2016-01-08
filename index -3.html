@@ -1,0 +1,1126 @@
+
+<html>
+
+<head>
+<title>Home</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<script type="text/javascript" src="webgl_utils.js"></script>
+<script type="text/javascript" src="glMatrix.js"></script>
+
+<link href='http://fonts.googleapis.com/css?family=Kaushan+Script' rel='stylesheet' type='text/css'>
+<link rel="stylesheet" href="style.css">
+	
+<script src="jquery-1.10.2.js"></script>
+<script src="jquery.mousewheel.js"></script>
+<script src="webgl-debug.js"></script>
+	
+<script id="vertex_PNT" type="vertex">
+	attribute vec3 aVertex;
+	attribute vec3 aNormal;
+	attribute vec2 aTexCoord;
+	
+	varying vec3 vNormal;
+	varying vec2 vTexCoord;
+	
+	uniform mat4 uWVP;
+	
+	void main(void) {
+		gl_Position = uWVP * vec4(aVertex, 1.);
+		vNormal = aNormal;
+		vTexCoord = aTexCoord;
+	}
+</script>
+	
+<script id="frag_PNT" type="frag">
+    precision highp float;
+	
+	varying vec3 vNormal;
+	varying vec2 vTexCoord;
+	
+	uniform float uTime;
+	uniform float uTexOffset;
+	
+	uniform float uWidth;
+	uniform float uLength;
+	
+	float bandSizeU = .25/uWidth;
+	float bandSizeV = .5/uLength;
+	float ooHBandSizeU = 1./(.5*bandSizeU);
+	float ooHBandSizeV = 1./(.5*bandSizeV);
+	uniform float uBandsU;
+	uniform float uBandsV;
+	uniform float uConstantColor;
+	
+	uniform sampler2D uTex0;
+	
+	void main(void) {
+		vec2 texCoord = vTexCoord;
+		texCoord.y += uTexOffset;
+		
+		float V = uBandsV * texCoord.y;
+		if ((1.-texCoord.y) > 10.*(uTime/uLength)) {
+			discard;
+		}
+		vec4 color = vec4(0.);//mix(vec4(1., 1., 1., 1.), vec4(0., 0., 0., 1.), texCoord.x);
+		color.a = 1.;
+		
+		float fractU = texCoord.x;
+		float fractV = texCoord.y;
+		//if (V < 22.) { 
+			color.a *= texture2D(uTex0, vec2(8.*(1.-fractV), fractU)).r;
+			//discard;
+			//color.rgb *= texture2D(uTex0, vec2(1.-fractV, fractU)).rgb;
+		//}
+		if (color.a < .6) {
+			discard;
+			//color.rgb = vec3(.0, .0, .0);
+		}
+
+		//color.a = 1.;
+		gl_FragColor = color;
+		float offset = .665;
+		float offset2 = .25;
+		float fFactor = exp(-80.*(offset - vTexCoord.y)*(offset - vTexCoord.y)) + exp(-110.*(offset2 - vTexCoord.y)*(offset2 - vTexCoord.y));
+		fFactor = clamp(fFactor, 0., 1.);
+		gl_FragColor = (1.-uConstantColor)*mix(vec4(1.), vec4(0.), fFactor);
+		
+		//fFactor = pow(vTexCoord.y + .865, 9.);
+		//fFactor = clamp(fFactor, 0., 1.);
+		//gl_FragColor += mix(gl_FragColor, vec4(1.), fFactor);
+		//clamp(gl_FragColor, 0., 1.);
+		
+		//fFactor = pow(1.-vTexCoord.y + .01, 22.);
+		//fFactor = clamp(fFactor, 0., 1.);
+		//gl_FragColor = mix(gl_FragColor, vec4(0.), fFactor);
+		
+		
+		//gl_FragColor.a = 1.;
+	}
+</script>
+
+<script id="vertex_PT" type="vertex">
+	attribute vec3 aVertex;
+	attribute vec2 aTexCoord;
+	
+	varying vec2 vTexCoord;
+
+	void main(void) {
+		gl_Position = vec4(aVertex, 1.);
+		vTexCoord = aTexCoord;
+	}
+</script>
+
+<script id="frag_Anti-alias" type="frag">
+	precision mediump float;
+	
+	varying vec2 vTexCoord;
+	uniform sampler2D uTex0;
+	
+	#define FXAA_REDUCE_MIN   (1.0/ 128.0)
+	#define FXAA_REDUCE_MUL   (1.0 / 8.0)
+	#define FXAA_SPAN_MAX     8.0
+	
+	vec2 uViewportSize = vec2(1400., 800.);
+
+	vec4 applyFXAA(vec2 fragCoord, sampler2D tex)
+	{
+		vec4 color;
+		vec2 inverseVP = vec2(1.0 / uViewportSize.x, 1.0 / uViewportSize.y);
+		vec3 rgbNW = texture2D(tex, fragCoord + (vec2(-1.0, -1.0) * inverseVP)).xyz;
+		vec3 rgbNE = texture2D(tex, fragCoord + (vec2(1.0, -1.0) * inverseVP)).xyz;
+		vec3 rgbSW = texture2D(tex, fragCoord + (vec2(-1.0, 1.0) * inverseVP)).xyz;
+		vec3 rgbSE = texture2D(tex, fragCoord + (vec2(1.0, 1.0) * inverseVP)).xyz;
+		vec3 rgbM  = texture2D(tex, fragCoord).xyz;
+		vec3 luma = vec3(0.299, 0.587, 0.114);
+		float lumaNW = dot(rgbNW, luma);
+		float lumaNE = dot(rgbNE, luma);
+		float lumaSW = dot(rgbSW, luma);
+		float lumaSE = dot(rgbSE, luma);
+		float lumaM  = dot(rgbM,  luma);
+		float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+		float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+		
+		vec2 dir;
+		dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+		dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+		
+		float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) *
+							  (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+		
+		float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+		dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
+				  max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+				  dir * rcpDirMin)) * inverseVP;
+		  
+		vec3 rgbA = 0.5 * (
+			texture2D(tex, fragCoord + (dir * (1.0 / 3.0 - 0.5))).xyz +
+			texture2D(tex, fragCoord + (dir * (2.0 / 3.0 - 0.5))).xyz);
+		vec3 rgbB = rgbA * 0.5 + 0.25 * (
+			texture2D(tex, fragCoord + (dir * -0.5)).xyz +
+			texture2D(tex, fragCoord  + (dir * 0.5)).xyz);
+
+		float lumaB = dot(rgbB, luma);
+		if ((lumaB < lumaMin) || (lumaB > lumaMax))
+			color = vec4(rgbA, 1.0);
+		else
+			color = vec4(rgbB, 1.0);
+		return color;
+	}
+
+	
+	void main(void) {
+		vec4 color = applyFXAA(vTexCoord, uTex0);
+		gl_FragColor = color;
+	}
+</script>
+
+<script id="frag_DrawColored" type="frag">
+	precision mediump float;
+
+	uniform vec3 uColor;
+	
+	void main(void) {
+		gl_FragColor = vec4(uColor, 1.);
+	}
+</script>
+
+<script type="text/javascript">
+	"use strict";
+	var PI = 3.14159265359;
+	var gl;
+	var tmpMat = mat4.create();
+	
+
+	function validateNoneOfTheArgsAreUndefined(functionName, args) {
+	  for (var ii = 0; ii < args.length; ++ii) {
+		if (args[ii] === undefined) {
+		  console.error("undefined passed to gl." + functionName + "(" +
+						 WebGLDebugUtils.glFunctionArgsToString(functionName, args) + ")");
+		}
+	  }
+	} 
+	
+	var glUtil = {
+		ext: null,
+		// Functions:
+		initGL: function(canvas) {
+		try{
+			gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+			//gl = canvas.getContext('webgl');
+			//gl = WebGLDebugUtils.makeDebugContext(gl, undefined, validateNoneOfTheArgsAreUndefined);
+			gl.viewportWidth = canvas.width;
+			gl.viewportHeight = canvas.height;
+			} catch(e) {}
+			if (!gl) {
+				alert('WebGL could not be init.');
+			}
+			try { this.ext = gl.getExtension("OES_texture_float");
+			} catch(e) {}
+			if ( !this.ext ) {alert(e + "OES_texture_float extension"); return;}
+			this.ext = (
+				gl.getExtension('EXT_texture_filter_anisotropic') ||
+				gl.getExtension('MOZ_EXT_texture_filter_anisotropic') ||
+				gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
+				);
+			if (!this.ext) {
+				alert("Could not load anisotropic extension"); return;
+			};
+		},
+		getShader: function(name) {
+			var shaderScript, theSource, currentChild, shader;
+	   
+			shaderScript = document.getElementById(name);
+			if (!shaderScript) {
+				alert("Shader could not be loaded");
+				return null;
+			}
+
+			theSource = "";
+			currentChild = shaderScript.firstChild;
+			while(currentChild) {
+				if (currentChild.nodeType == currentChild.TEXT_NODE) {
+				  theSource += currentChild.textContent;
+				}
+				currentChild = currentChild.nextSibling;
+			}
+			
+			if (shaderScript.type == "vertex") {
+				shader = gl.createShader(gl.VERTEX_SHADER);
+			} else if (shaderScript.type == "frag") {
+				shader = gl.createShader(gl.FRAGMENT_SHADER);
+			} else {
+				alert("Unknown shader type");
+				return null;
+			}
+			
+			gl.shaderSource(shader, theSource);
+			// Compile the shader program
+			gl.compileShader(shader);  
+			 
+			// See if it compiled successfully
+			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {  
+				alert("An error occurred compiling the shaders: " + gl.getShaderInfoLog(shader));  
+				return null;  
+			}
+			
+			return shader;
+		},
+		
+		makeShader: function(vertexShaderName, fragShaderName) {
+			var vertexShader = this.getShader(vertexShaderName);
+			var fragShader = this.getShader(fragShaderName);
+		
+			var program = gl.createProgram();
+			gl.attachShader(program, vertexShader);
+			gl.attachShader(program, fragShader);
+			gl.linkProgram(program);
+			if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {alert("Shader could not be linked."); }
+			gl.useProgram(program);
+			return program;
+		},
+		
+		createTexture: function(name, textureFormat, samplingFormat) {
+			var texture = gl.createTexture();
+			var image = new Image();
+			var that = this;
+			image.onload = function() {
+				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, textureFormat, image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, samplingFormat); //CLAMP_TO_EDGE
+				if (that.ext){
+					var max = gl.getParameter(that.ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+					gl.texParameterf(gl.TEXTURE_2D, that.ext.TEXTURE_MAX_ANISOTROPY_EXT, max);
+				}
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+			}
+			image.src = name;
+			return texture;
+		},
+		// format: gl.UNSIGNED_BYTE, gl.FLOAT
+		createRenderToTexture: function(width, height, textureFormat, samplingFormat, repeatMode) {
+			var out = {};
+			out.frameBuf = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, out.frameBuf);
+			out.frameBuf.width = width;
+			out.frameBuf.height = height;
+			
+			var pixels = [];
+			for (var j = 0; j<out.frameBuf.width; j++)
+			  for (var k = 0; k<out.frameBuf.height; k++) {
+				pixels.push( 0, 0, 0, 0);
+			}
+			 
+			out.texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, out.texture);
+			if (textureFormat === gl.FLOAT)
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, out.frameBuf.width, out.frameBuf.height, 0, gl.RGBA, textureFormat, new Float32Array(pixels));
+			else if (textureFormat === gl.UNSIGNED_BYTE)
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, out.frameBuf.width, out.frameBuf.height, 0, gl.RGBA, textureFormat, new Uint8Array(pixels));
+			else {
+				alert("Invalid format for render to texture.");
+				return;
+			}
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, samplingFormat); 
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, samplingFormat); 
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeatMode);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, repeatMode);
+			//gl.generateMipmap(gl.TEXTURE_2D);
+			
+			var depthBuf = gl.createRenderbuffer();
+			gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuf);
+			gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, out.frameBuf.width, out.frameBuf.height);
+			
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, out.texture, 0);
+			gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthBuf);
+			
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			return out;
+		},
+	};
+	
+	///////////////////////////////// Camera ////////////////////////////////
+	function Camera() {
+		this.view = mat4.create();
+		this.proj = mat4.create();
+		this.pos = vec3.create();
+	};
+	Camera.prototype.lookAt = function(eye, center, up) {
+		mat4.lookAt(this.view, eye, center, up);
+		this.pos = eye;
+	};
+	Camera.prototype.getWVP = function(world) {
+		mat4.mul(tmpMat, this.view, world);
+		mat4.mul(tmpMat, this.proj, tmpMat);
+		return tmpMat;
+	};
+	Camera.prototype.getVP = function() {
+		mat4.mul(tmpMat, this.proj, this.view);
+		return tmpMat;
+	};
+	// -1., 1., -1., 1., 0., 1.
+	function CameraOrtho(left, right, bottom, top, near, far) {
+		Camera.call(this);
+		mat4.ortho(this.proj, left, right, bottom, top, near, far);
+	};
+	CameraOrtho.prototype = Object.create(Camera.prototype);
+	// PI/2., gl.viewportWidth / gl.viewportHeight, .1, 100.
+	function CameraPerspective(fovy, aspect, near, far) {
+		Camera.call(this);
+		mat4.perspective(this.proj, fovy, aspect, near, far);
+	};
+	CameraPerspective.prototype = Object.create(Camera.prototype);
+	
+	///////////////////////////////// Shader ////////////////////////////////
+	function ShaderPNT() {
+		this.program = glUtil.makeShader("vertex_PNT", "frag_PNT");
+		
+		this.aVertex = gl.getAttribLocation(this.program, "aVertex");
+		this.aNormal = gl.getAttribLocation(this.program, "aNormal");
+		this.aTexCoord = gl.getAttribLocation(this.program, "aTexCoord");
+			
+		this.uLightAmb = gl.getUniformLocation(this.program, "uLightAmb");
+		this.uLightDif = gl.getUniformLocation(this.program, "uLightDif");
+		this.uLightSpe = gl.getUniformLocation(this.program, "uLightSpe");
+		this.uLightVec = gl.getUniformLocation(this.program, "uLightVec");
+		
+		this.uMatAmb = gl.getUniformLocation(this.program, "uMatAmb");
+		this.uMatDif = gl.getUniformLocation(this.program, "uMatDif");
+		this.uMatSpe = gl.getUniformLocation(this.program, "uMatSpe");
+		this.uMatPow = gl.getUniformLocation(this.program, "uMatPow");
+		this.uCamPos = gl.getUniformLocation(this.program, "uCamPos");
+		
+		this.uWVP = gl.getUniformLocation(this.program, "uWVP");
+		this.uWorld = gl.getUniformLocation(this.program, "uWorld");
+		
+		this.uTexSamp = gl.getUniformLocation(this.program, "uTexSamp");
+
+	};
+	ShaderPNT.prototype.use = function() {
+		gl.useProgram(this.program);
+	};
+	ShaderPNT.prototype.setupLight = function(amb, dif, spe, lightVec) {
+		gl.uniform4fv(this.uLightAmb, amb);
+		gl.uniform4fv(this.uLightDif, dif);
+		gl.uniform4fv(this.uLightSpe, spe);
+		gl.uniform3fv(this.uLightVec, lightVec);
+	};
+	ShaderPNT.prototype.setupCamera = function(camPos) {
+		gl.uniform3fv(this.uCamPos, camPos);
+	};
+	ShaderPNT.prototype.setupMat = function(amb, dif, spe, pow) {
+		gl.uniform4fv(this.uMatAmb, amb);
+		gl.uniform4fv(this.uMatDif, dif);
+		gl.uniform4fv(this.uMatSpe, spe);
+		gl.uniform1f(this.uMatPow, pow);
+	};
+	ShaderPNT.prototype.setupTexture = function(texture, location) {
+		gl.activeTexture(gl.TEXTURE0 + location);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.uniform1i(this.texSamp, location);
+	};
+	ShaderPNT.prototype.setupMatrixUniforms = function(world, VP) {
+		mat4.mul(tmpMat, VP, world);
+		gl.uniformMatrix4fv(this.uWVP, false, tmpMat);
+		mat4.transpose(tmpMat, world);
+        gl.uniformMatrix4fv(this.uWorld, false, world);
+	};
+	
+	///////////////////////////////// Mesh ////////////////////////////////
+	function Mesh() {
+		this.nVert = 0;
+		this.nFaces = 0;
+		this.vertexBuf = {};
+		this.indexBuf = {};
+		this.stride = 0;
+	};
+	
+	// Create a 1 x 1 x 1 cube centered at the origin with position, normal, texture attributes
+	function MeshCubePNT() {
+		Mesh.call(this);
+		
+		var vert = [
+            // Front face
+            -1.0, -1.0,  1.0, 0.0,  0.0,  1.0, 0.0, 0.0,
+             1.0, -1.0,  1.0, 0.0,  0.0,  1.0, 1.0, 0.0,
+             1.0,  1.0,  1.0, 0.0,  0.0,  1.0, 1.0, 1.0,
+            -1.0,  1.0,  1.0, 0.0,  0.0,  1.0, 0.0, 1.0,
+
+            // Back face
+            -1.0, -1.0, -1.0, 0.0,  0.0, -1.0, 1.0, 0.0,
+            -1.0,  1.0, -1.0, 0.0,  0.0, -1.0, 1.0, 1.0,
+             1.0,  1.0, -1.0, 0.0,  0.0, -1.0, 0.0, 1.0,
+             1.0, -1.0, -1.0, 0.0,  0.0, -1.0, 0.0, 0.0,
+
+            // Top face
+            -1.0,  1.0, -1.0, 0.0,  1.0,  0.0, 0.0, 1.0,
+            -1.0,  1.0,  1.0, 0.0,  1.0,  0.0, 0.0, 0.0,
+             1.0,  1.0,  1.0, 0.0,  1.0,  0.0, 1.0, 0.0,
+             1.0,  1.0, -1.0, 0.0,  1.0,  0.0, 1.0, 1.0,
+
+            // Bottom face
+            -1.0, -1.0, -1.0, 0.0, -1.0,  0.0, 1.0, 1.0,
+             1.0, -1.0, -1.0, 0.0, -1.0,  0.0, 0.0, 1.0,
+             1.0, -1.0,  1.0, 0.0, -1.0,  0.0, 0.0, 0.0,
+            -1.0, -1.0,  1.0, 0.0, -1.0,  0.0, 1.0, 0.0,
+
+            // Right face
+             1.0, -1.0, -1.0, 1.0,  0.0,  0.0, 1.0, 0.0,
+             1.0,  1.0, -1.0, 1.0,  0.0,  0.0, 1.0, 1.0,
+             1.0,  1.0,  1.0, 1.0,  0.0,  0.0, 0.0, 1.0,
+             1.0, -1.0,  1.0, 1.0,  0.0,  0.0, 0.0, 0.0,
+
+            // Left face
+            -1.0, -1.0, -1.0, -1.0,  0.0,  0.0, 0.0, 0.0,
+            -1.0, -1.0,  1.0, -1.0,  0.0,  0.0, 1.0, 0.0,
+            -1.0,  1.0,  1.0, -1.0,  0.0,  0.0, 1.0, 1.0,
+            -1.0,  1.0, -1.0, -1.0,  0.0,  0.0, 0.0, 1.0
+        ];
+		this.vertexBuf = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vert), gl.STATIC_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		
+		this.indexBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
+        var indices = [
+            0, 1, 2,      0, 2, 3,    // Front face
+            4, 5, 6,      4, 6, 7,    // Back face
+            8, 9, 10,     8, 10, 11,  // Top face
+            12, 13, 14,   12, 14, 15, // Bottom face
+            16, 17, 18,   16, 18, 19, // Right face
+            20, 21, 22,   20, 22, 23  // Left face
+        ];
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+		
+		this.nVert = 24;
+		this.nFaces = 12;
+		this.stride = 32; // 4*8 
+	};
+	MeshCubePNT.prototype = Object.create(Mesh.prototype);
+	MeshCubePNT.prototype.drawSetup = function(_shaderPNT) {
+		gl.enableVertexAttribArray(_shaderPNT.aVertex);
+		gl.enableVertexAttribArray(_shaderPNT.aNormal);
+		gl.enableVertexAttribArray(_shaderPNT.aTexCoord);
+		
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);
+		gl.vertexAttribPointer(_shaderPNT.aVertex, 3, gl.FLOAT, false, this.stride, 0);
+		gl.vertexAttribPointer(_shaderPNT.aNormal, 3, gl.FLOAT, false, this.stride, 12);
+		gl.vertexAttribPointer(_shaderPNT.aTexCoord, 2, gl.FLOAT, false, this.stride, 24);
+		
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuf);
+	}
+	MeshCubePNT.prototype.draw = function() {
+        gl.drawElements(gl.TRIANGLES, 3 * this.nFaces, gl.UNSIGNED_SHORT, 0);
+	};
+	
+	// Create a helix with position, normal, texture attributes
+	// x = a*cos(t)
+	// y = b*sin(t)
+	// z = c*t
+	function MeshHelixPNT(length, width, nRingsV, a, b, c, headerLen) {
+		Mesh.call(this);
+		
+		var vert = new Array();
+		
+		var t = -0;
+		var k = 1.;
+		var phi = .5*PI;//PI;
+		var incr = length/nRingsV;
+		var texIncr = 1./(nRingsV + headerLen/incr);
+		var headerTexIncr = (headerLen/(headerLen+length));
+		var texRepeat = 1;
+		var p0 = vec3.create();
+		var p1 = vec3.create();
+		var p2 = vec3.create();
+		var p3 = vec3.create();
+		var edge0 = vec3.create();
+		var edge1 = vec3.create();
+		var edge2 = vec3.create();
+		var binormal0 = vec3.create();
+		var binormal1 = vec3.create();
+		var normal0 = vec3.create();
+		var normal1 = vec3.create();
+		var v0 = vec3.create();
+		var v1 = vec3.create();
+		var v2 = vec3.create();
+		var v3 = vec3.create();
+		var triNormal0 = vec3.create();
+		var triNormal1 = vec3.create();
+		var l0 = vec3.create();
+		var l1 = vec3.create();
+		
+		// Create the actual ring
+		var i = 0;
+		function DoRing() {
+			vec3.set(p0, a*Math.cos(k*(t-incr) + phi), b*Math.sin(k*(t-incr) + phi), c*(t-incr));
+			vec3.set(p1, a*Math.cos(k*t + phi), b*Math.sin(k*t + phi), c*t);
+			vec3.set(p2, a*Math.cos(k*(t+incr) + phi), b*Math.sin(k*(t+incr) + phi), c*(t+incr));
+			//vec3.set(p3, a*Math.cos(k*(t+2.*incr) + phi), b*Math.sin(k*(t+2.*incr) + phi), c*(t+2.*incr));
+			vec3.set(p2, a*Math.cos(t+2.*incr), b*Math.sin(t+2.*incr), c*(t+2.*incr));
+			vec3.set(p3, [0, 0, 0]);
+			
+			// Compute the frenet frames
+			vec3.sub(edge0, p1, p0);
+			vec3.sub(edge1, p2, p1);
+			vec3.sub(edge2, p3, p2);
+			vec3.sub(normal0, edge1, edge0);
+			vec3.normalize(normal0, normal0);
+			vec3.cross(binormal0, edge1, edge0);
+			vec3.normalize(binormal0, binormal0);
+			vec3.sub(normal1, edge2, edge1);
+			vec3.normalize(normal1, normal1);
+			vec3.cross(binormal1, edge2, edge1);
+			vec3.normalize(binormal1, binormal1);
+			
+			v0 = p1;
+			v1 = p2;
+			//vec3.scaleAndAdd(v2, v0, normal0, width);
+			//vec3.scaleAndAdd(v3, v1, normal1, width);
+			vec3.scaleAndAdd(v2, v0, binormal0, width);
+			vec3.scaleAndAdd(v3, v1, binormal1, width);
+			vec3.sub(l0, v1, v0);
+			vec3.sub(l1, v2, v0);
+			vec3.cross(triNormal0, l0, l1);
+			vec3.normalize(triNormal0, triNormal0);
+			vec3.sub(l0, v3, v1);
+			vec3.sub(l1, v2, v1);
+			vec3.cross(triNormal1, l0, l1);
+			vec3.normalize(triNormal1, triNormal1);
+		};
+		
+		// Create the horizontal rectangle
+		DoRing();
+		//vec3.set(v0, ;
+		//vec3.set(v1, 40, v0[1], v0[2]);
+		//vec3.set(v2, 0.0, v0[1], v0[2]-width);
+		//vec3.set(v3, 40., v0[1], v0[2]-width);
+		//vec3.set(v1, v0[0], v0[1], v[0);
+		//vec3.set(v3, v2);
+		
+		v0[0] += 8.;
+		v0[1] -= 2.;
+		v2[0] += 8.;
+		v2[1] += 2.;
+		v1 = vec3.clone(v0);
+		v3 = vec3.clone(v2);
+		vec3.set(v3, v0[0], v0[1], v0[2]-width); 
+		vec3.set(v0, 50., v0[1], v0[2]);
+		vec3.set(v2, 50., v0[1], v0[2]-width);
+		
+		vec3.set(triNormal0, [0., 0., 1.]);
+		vec3.set(triNormal1, [0., 0., 1.]);
+		
+		vert.push(v0[0], v0[1], v0[2], triNormal0[0], triNormal0[1], triNormal0[2], 1., texRepeat*(0.));
+		vert.push(v1[0], v1[1], v1[2], triNormal0[0], triNormal0[1], triNormal0[2], 1., texRepeat*(headerTexIncr));
+		vert.push(v2[0], v2[1], v2[2], triNormal0[0], triNormal0[1], triNormal0[2], 0., texRepeat*(0.));
+		
+		vert.push(v1[0], v1[1], v1[2], triNormal1[0], triNormal1[1], triNormal1[2], 1., texRepeat*(headerTexIncr));
+		vert.push(v3[0], v3[1], v3[2], triNormal1[0], triNormal1[1], triNormal1[2], 0., texRepeat*(headerTexIncr));
+		vert.push(v2[0], v2[1], v2[2], triNormal1[0], triNormal1[1], triNormal1[2], 0., texRepeat*(0.));
+		//texIncr += headerTexIncr;
+		// Create the actual rings
+		i += 0;
+		for (; i<nRingsV-1; i++) {
+			DoRing();
+			vert.push(v0[0], v0[1], v0[2], triNormal0[0], triNormal0[1], triNormal0[2], 1., texRepeat*((i+1)*texIncr + headerTexIncr));
+			vert.push(v1[0], v1[1], v1[2], triNormal0[0], triNormal0[1], triNormal0[2], 1., texRepeat*(i*texIncr + headerTexIncr));
+			vert.push(v2[0], v2[1], v2[2], triNormal0[0], triNormal0[1], triNormal0[2], 0., texRepeat*((i+1)*texIncr + headerTexIncr));
+			
+			vert.push(v1[0], v1[1], v1[2], triNormal1[0], triNormal1[1], triNormal1[2], 1., texRepeat*((i)*texIncr + headerTexIncr));
+			vert.push(v3[0], v3[1], v3[2], triNormal1[0], triNormal1[1], triNormal1[2], 0., texRepeat*((i)*texIncr + headerTexIncr));
+			vert.push(v2[0], v2[1], v2[2], triNormal1[0], triNormal1[1], triNormal1[2], 0., texRepeat*((i+1)*texIncr + headerTexIncr));
+			t += incr;
+			
+		}
+		
+		// Create the vertex buf
+		this.vertexBuf = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vert), gl.STATIC_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		
+		this.nVert = 6*(nRingsV);
+		this.nFaces = 2*(nRingsV);
+		this.stride = 32; // 4*8*/
+	};
+	MeshHelixPNT.prototype = Object.create(Mesh.prototype);
+	MeshHelixPNT.prototype.drawSetup = function(_shaderPNT) {
+		gl.enableVertexAttribArray(_shaderPNT.aVertex);
+		gl.enableVertexAttribArray(_shaderPNT.aNormal);
+		gl.enableVertexAttribArray(_shaderPNT.aTexCoord);
+		
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);	
+		gl.vertexAttribPointer(_shaderPNT.aVertex, 3, gl.FLOAT, false, this.stride, 0);
+		gl.vertexAttribPointer(_shaderPNT.aNormal, 3, gl.FLOAT, false, this.stride, 12);
+		gl.vertexAttribPointer(_shaderPNT.aTexCoord, 2, gl.FLOAT, false, this.stride, 24);
+	}
+	MeshHelixPNT.prototype.draw = function() {
+        gl.drawArrays(gl.TRIANGLES, 0, 3 * this.nFaces);
+		//gl.drawArrays(gl.LINE_STRIP, 0, 3 * this.nFaces);
+	};
+	
+	function MeshScreenSpaceQuad() {
+		Mesh.call(this);
+		
+		var vert = [
+			-1., -1., 1., 0., 0.,
+			+1., +1., 1., 1., 1.,
+			+1., -1., 1., 1., 0.,
+			
+			-1., -1., 1., 0., 0.,
+			-1., +1., 1., 0., 1.,
+			+1., +1., 1., 1., 1.
+		];
+		
+		// Create the vertex buf
+		this.vertexBuf = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vert), gl.STATIC_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		
+		this.nVert = 3*2;
+		this.nFaces = 2;
+		this.stride = 20;
+	};
+	MeshScreenSpaceQuad.prototype = Object.create(Mesh.prototype);
+	MeshScreenSpaceQuad.prototype.drawSetup = function(_shaderScreenSpace) {
+		gl.enableVertexAttribArray(_shaderScreenSpace.aVertex);
+		gl.enableVertexAttribArray(_shaderScreenSpace.aTexCoord);
+		
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuf);
+		gl.vertexAttribPointer(_shaderScreenSpace.aVertex, 3, gl.FLOAT, false, this.stride, 0);
+		gl.vertexAttribPointer(_shaderScreenSpace.aTexCoord, 2, gl.FLOAT, false, this.stride, 12);
+	};
+	MeshScreenSpaceQuad.prototype.draw = function() {
+		gl.drawArrays(gl.TRIANGLES, 0, 6);
+	};
+	///////////////////////////////// Constructors ////////////////////////////////
+	
+	function HelixShader() {
+		ShaderPNT.call(this);
+		this.uTime = gl.getUniformLocation(this.program, "uTime");
+		this.uTexOffset = gl.getUniformLocation(this.program, "uTexOffset");
+		this.uWidth = gl.getUniformLocation(this.program, "uWidth");
+		this.uLength = gl.getUniformLocation(this.program, "uLength");
+		this.uBandsU = gl.getUniformLocation(this.program, "uBandsU");
+		this.uBandsV = gl.getUniformLocation(this.program, "uBandsV");
+		this.uTex0 = gl.getUniformLocation(this.program, "uTex0");
+		this.uConstantColor = gl.getUniformLocation(this.program, "uConstantColor");
+	};
+	HelixShader.prototype = Object.create(ShaderPNT.prototype);
+
+	HelixShader.prototype.setup = function (time, dist, width, length, bandsU, bandsV, texture) {
+		gl.uniform1f(this.uTime, time);
+		gl.uniform1f(this.uTexOffset, dist);
+		gl.uniform1f(this.uWidth, width);
+		gl.uniform1f(this.uLength, length);
+		gl.uniform1f(this.uBandsU, bandsU);
+		gl.uniform1f(this.uBandsV, bandsV);
+		
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.uniform1i(this.uTex0, 0);
+	};
+	HelixShader.prototype.setConstantColor = function() {
+		gl.uniform1f(this.uConstantColor, 1.);
+	}
+	HelixShader.prototype.unsetConstantColor = function() {
+		gl.uniform1f(this.uConstantColor, 0.);
+	}
+	
+	function AntialiasShader() {
+		this.program = glUtil.makeShader("vertex_PT", "frag_Anti-alias");
+		
+		this.aVertex = gl.getAttribLocation(this.program, "aVertex");
+		this.aTexCoord = gl.getAttribLocation(this.program, "aTexCoord");
+		
+		this.uTexSamp = gl.getUniformLocation(this.program, "uTex0");
+	};
+	AntialiasShader.prototype.use = function() {
+		gl.useProgram(this.program);
+	};
+	AntialiasShader.prototype.setup = function(texture, texId) {
+		gl.activeTexture(gl.TEXTURE0 + texId);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.uniform1i(this.uTexSamp, texId);
+	};
+	
+	function DrawColoredShader() {
+		this.program = glUtil.makeShader("vertex_PNT", "frag_DrawColored");
+		
+		this.aVertex = gl.getAttribLocation(this.program, "aVertex");
+		this.aNormal = gl.getAttribLocation(this.program, "aNormal");
+		this.aTexCoord = gl.getAttribLocation(this.program, "aTexCoord");
+		
+		this.uWVP = gl.getUniformLocation(this.program, "uWVP");
+		
+		this.uColor = gl.getUniformLocation(this.program, "uColor");
+	};
+	DrawColoredShader.prototype.use = function() {
+		gl.useProgram(this.program);
+	};
+	DrawColoredShader.prototype.setup = function(world, VP, color) {
+		mat4.mul(tmpMat, VP, world);
+		gl.uniformMatrix4fv(this.uWVP, false, tmpMat);
+		
+		gl.uniform3fv(this.uColor, color);
+	};
+	
+	///////////////////////////////// Variables ////////////////////////////////
+	var time = 0.;
+	var timeStep = .6;
+	var camera;
+	var cube;
+	var helix = new Array();
+	var screenSpaceQuad;
+	var helixShader;
+	var aaShader;
+	var selectionShader;
+	var densityTexture;
+	var texSize = 512.;
+	var rTT;
+	var blogTexture;
+	var projectsTexture;
+	var aboutTexture;
+	
+	var animating = false;
+	var nElementsDisplayed = 0;
+	var elementWidth = 0; 
+	// TODO: set these all in an external file 
+	var cellSpacing = 30;
+	var leftOffsetDist = .61*window.screen.availWidth;
+	var topElementOffset = .265*window.screen.availHeight;
+	var minScreenWidth = window.screen.availWidth;
+	var loadTime = 4000;
+	var scrollTime = 750;
+	var maxXHelixTrans = 700;
+	
+	///////////////////////////////// Functions ////////////////////////////////
+	function initCamera() {
+		camera = new CameraPerspective(PI/2., 1., 1., 1000.);
+	};
+	
+	function initBuffers() {
+		cube = new MeshCubePNT();
+		var nBands = 92;
+		helix[0] = new MeshHelixPNT(42., 3.2-.1, nBands, 6.+6., 10., -6., 20.);
+		helix[1] = new MeshHelixPNT(42., 2.2-.1, nBands, 6.+8., 18., -2., 20.);
+		helix[2] = new MeshHelixPNT(42., 2.8-.1, nBands, 6.+6.2, 10.2, -4, 20.);
+		
+		screenSpaceQuad = new MeshScreenSpaceQuad();
+	}
+	
+	function initTextures() {
+		rTT = new Array();
+		rTT[0] = glUtil.createRenderToTexture(window.screen.availWidth, window.screen.availHeight, gl.UNSIGNED_BYTE, gl.LINEAR, gl.CLAMP_TO_EDGE);
+		rTT[1] = glUtil.createRenderToTexture(window.screen.availWidth, window.screen.availHeight, gl.UNSIGNED_BYTE, gl.NEAREST, gl.CLAMP_TO_EDGE);
+		
+		blogTexture = glUtil.createTexture("SideScroll/Blog.png", gl.UNSIGNED_BYTE, gl.LINEAR);
+		projectsTexture = glUtil.createTexture("SideScroll/Projects.png", gl.UNSIGNED_BYTE, gl.LINEAR);
+		aboutTexture = glUtil.createTexture("SideScroll/About.png", gl.UNSIGNED_BYTE, gl.LINEAR);
+	};
+
+	function initShaders() {
+		helixShader = new HelixShader();
+		aaShader = new AntialiasShader();
+		selectionShader = new DrawColoredShader();
+	};
+	
+	var time = 0.;
+	var helixSelected = 0;
+	var constantColor = 0;
+	
+	function drawScene(type) {
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+		var id = mat4.create();
+		var world = mat4.create();
+		camera.lookAt([0., -4., -1.4], [0., -4., -10.], [0., 1., 0.]);
+		
+		// Setup
+		if (type === 0) {
+			helixShader.use();
+			helixShader.setupCamera(camera.pos);
+			helixShader.setupLight([1., 1., 1., 1.], [.5, .5, .5, 1.], [.8, .8, .8, 1.], [0, .707, -.707]);
+			helixShader.setupMat([1., 1., 1., 1.], [.5, .5, .5, 1.], [.8, .8, .8, 1.], 32.);
+		} else {
+			selectionShader.use();
+		}
+		
+		var xTrans = -.1+-pageXOffset/50.;
+		var yTrans = 1.8;
+		if (pageXOffset > maxXHelixTrans) {
+			xTrans = -maxXHelixTrans/50.;
+		};
+		
+		// Blog
+		var shift = -9.
+		var rot = mat4.create();
+		mat4.rotate(rot, id, 0., [0., 0., 1.]);
+		mat4.translate(world, rot, [-4. + xTrans, -3.5 + yTrans, -1.5+shift]);
+		if (type === 0) {
+			helixShader.setup(time, .02*time, 1.2, 22., 1., 22., blogTexture);
+			helix[1].drawSetup(helixShader);
+			helixShader.setupMatrixUniforms(world, camera.getWVP(world));
+		} else {
+			helix[1].drawSetup(selectionShader);
+			selectionShader.setup(world, camera.getWVP(world), [1., 0., 0.]);
+		}
+		if (helixSelected === 2) {
+			helixShader.setConstantColor();
+			helix[1].draw();
+			helixShader.unsetConstantColor();
+		} else helix[1].draw();
+		
+		// About
+		mat4.translate(world, rot, [-2.+1.1 + xTrans, -3.2 + yTrans, .12+shift]);
+		if (type === 0) {
+			helixShader.setup(time, .02*time, 2.2, 22., 1., 22., aboutTexture);
+			helix[0].drawSetup(helixShader);
+			helixShader.setupMatrixUniforms(world, camera.getWVP(world));
+		} else {
+			helix[0].drawSetup(selectionShader);
+			selectionShader.setup(world, camera.getWVP(world), [0., 1., 0.]);
+		}
+		if (helixSelected === 1) {
+			helixShader.setConstantColor();
+			helix[0].draw();
+			helixShader.unsetConstantColor();
+		} else helix[0].draw();
+			
+		// Projects
+		mat4.translate(world, rot, [-4.+1.2 + xTrans, -2.1 + yTrans, .12+shift]);
+		if (type === 0) {
+			helixShader.setup(time, .02*time, .8, 22., 1., 22., projectsTexture);
+			helix[2].drawSetup(helixShader);
+			helixShader.setupMatrixUniforms(world, camera.getWVP(world));
+		} else {
+			helix[2].drawSetup(selectionShader);
+			selectionShader.setup(world, camera.getWVP(world), [0., 0., 1.]);
+		}
+		if (helixSelected === 3) {
+			helixShader.setConstantColor();
+			helix[2].draw();
+			helixShader.unsetConstantColor();
+		} else helix[2].draw();
+	};
+	
+	function drawSceneAA() {
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+		aaShader.use();
+		aaShader.setup(rTT[0].texture, 0);
+		
+		screenSpaceQuad.drawSetup(aaShader);
+		screenSpaceQuad.draw();
+	}
+	
+	function webGLStart() {
+		var canvas = document.getElementById('Main Page');
+		glUtil.initGL(canvas);
+   
+		initCamera();
+		initBuffers();
+		initShaders();
+		initTextures();
+		
+		//gl.clearColor(0., 0., 0., 1.);
+		gl.clearColor(1., 1., 1., 1.);
+		//gl.clearColor(.5, .3, 1., 1.);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthFunc(gl.LEQUAL);
+		gl.viewport(0, 0, window.screen.availWidth, window.screen.availHeight);
+		
+		windowResize();
+		
+		window.setTimeout(tick, 100);
+	};
+
+	var lastTime = new Date;
+	var notLoaded = true;
+	function tick() {
+		requestAnimFrame(tick);
+		
+		gl.disable(gl.CULL_FACE);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, rTT[0].frameBuf);
+		drawScene(0);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		
+		drawSceneAA();
+		
+		var currentTime = new Date;
+		var spf = (currentTime - lastTime)/1000.;
+		lastTime = currentTime;
+	
+		time += spf*timeStep;
+	};
+	
+	$(function(){
+		
+		$("#page")[0].style.top = topElementOffset + "px";
+		$("#page").wrapInner("<div id='page-wrap' position='absolute' align='justify' style='min-width: " + minScreenWidth + "px'> " + "<table id='postsTable' cellspacing='30'><tr id='row0'> </div>");
+		
+		$.when(loadElements("SideScroll/blog/", "p", loadTime).promise()).always(function() {
+			elementWidth = parseInt($(".post").css("width")) + 2*parseInt($(".post").css("padding"));
+			console.log(elementWidth);
+			windowResize();
+		});
+		
+		$('#page-wrap')[0].style.marginLeft = leftOffsetDist + "px";
+		
+		function performAction(choice1, choice2) {
+			animating = true;
+			nElementsDisplayed = 0;
+			$('.post').fadeOut('slow').promise();
+			var animPromise = $('body').css({'overflow-x': 'hidden'}).animate({scrollLeft: leftOffsetDist}, scrollTime, "swing");
+			var loadPromise = loadElements(choice1, choice2);
+			$.when(animPromise, loadPromise).always(function () {
+				$('body').css({'overflow-x': 'visible'});
+				animating = false;
+			});
+		}
+		
+		$("body").keypress(function (event) {
+			if (animating) return;
+			
+			var choice1 = "";
+			var choice2 = "";
+			if (event.which === 49) {
+				choice1 = "SideScroll/blog/"; choice2 = "p";
+			} else if (event.which === 50) {
+				choice1  = "SideScroll/projects/"; choice2 = "p";
+			} else if (event.which === 51) {
+				choice1 = "SideScroll/"; choice2 = "About";
+			} else return;
+			
+			performAction(choice1, choice2);
+		});
+		
+		$("body").click(function(event) {
+			if (animating) return;
+			
+			var choice1 = "";
+			var choice2 = "";
+			if (helixSelected === 2) {
+				choice1 = "SideScroll/blog/"; choice2 = "p";
+			} else if (helixSelected === 3) {
+				choice1  = "SideScroll/projects/"; choice2 = "p";
+			} else if (helixSelected === 1) {
+				choice1 = "SideScroll/"; choice2 = "About";
+			} else return;
+			
+			performAction(choice1, choice2);
+		});
+		
+		function loadElements(dir, name, speed) {
+			var deferred = $.Deferred();
+			$('td.post-cell').remove();
+			var row = $("#row0");
+			function loadTableElements(counter) {
+				var postcell = $('<td class="post-cell">');
+				var div = $('<div class="post">').appendTo(postcell);
+				var fileName = dir + name + counter + ".html";
+				$.get(fileName).done(function(html) {
+					div.append($('<div>').append($.parseHTML(html)).find('#Intro').contents());
+					div.append("<a href=" + fileName + " type='text/html' style='color:#000000' target='_blank'> Read more </a>");
+					if (speed === null)
+						postcell.hide().appendTo(row).fadeIn('slow');
+					else postcell.hide().appendTo(row).fadeIn(speed);
+					nElementsDisplayed++;
+					loadTableElements(counter-1);
+				}).fail(deferred.resolve);
+			};
+			var counterStart = 9999;
+			loadTableElements(counterStart);
+			return deferred.promise();
+		};
+	});
+	
+	$(function(){  
+		$("body").mousemove(function(event) {
+			var mousePosX = event.pageX;
+			var mousePosY = event.pageY;
+			
+			gl.bindFramebuffer(gl.FRAMEBUFFER, rTT[1].frameBuf);
+			var data = new Uint8Array(4);
+			gl.readPixels((mousePosX - pageXOffset), window.screen.availHeight-mousePosY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			
+			// Only detect picking outside the div's
+			helixSelected = 0;
+			if (data[0] === 255 && data[1] === 0 && data[2] === 0) helixSelected = 2; 
+			if (data[0] === 0 && data[1] === 255 && data[2] === 0) helixSelected = 1;
+			if (data[0] === 0 && data[1] === 0 && data[2] === 255) helixSelected = 3;
+			var relativePos = mousePosX - (leftOffsetDist+cellSpacing);
+			var nElements = relativePos / (elementWidth+cellSpacing);
+			var relativeElementPos = relativePos % (elementWidth+cellSpacing);
+			if (relativeElementPos > 0 && relativeElementPos < elementWidth && mousePosY > (topElementOffset+cellSpacing) && nElements < nElementsDisplayed) helixSelected = 0;
+		});
+	});
+	
+	$(function(){
+		$("body").mousewheel(function(event, delta) {
+			event.preventDefault();
+			if (animating) return;
+			$(window).scrollLeft($(window).scrollLeft() + delta * 80);
+			pageYOffset = 0;
+			windowResize();
+		});
+	});
+
+	function windowResize() {
+		var canvas = document.getElementById('Main Page');
+		canvas.style.position = "absolute";
+		canvas.style.left = pageXOffset+"px";
+		if (pageXOffset > (window.screen.availWidth + nElementsDisplayed*(elementWidth+cellSpacing))) {
+			canvas.style.left = (window.screen.availWidth + nElementsDisplayed*(elementWidth+cellSpacing)) + "px";
+		}
+		canvas.style.top = "0px";
+		
+		canvas.width = window.screen.availWidth;
+		canvas.height = window.screen.availHeight;
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, rTT[1].frameBuf);
+		drawScene(1);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	};
+	
+	$(window).scroll(function(e) {
+		windowResize();
+	});
+	$(window).resize(function() {
+		windowResize();
+	});
+	
+	$(window).load(function() {
+		windowResize();
+	});
+	
+	/*
+	//if uMath.sing mipmapping
+	if (type == 0) {
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+		}*/
+</script>
+
+
+</head>
+
+<body style="padding: 0px; vertical-align: top;" onload="webGLStart();"> <!-- onresize="resize_canvas();"> -->
+	<canvas id="Main Page" style="border: none; display:block;" width="100%;" height="100%"></canvas>
+	
+	<div id="page" style="position: absolute;">
+		<!--<div id="page-wrap" align="justify" style="min-width: 1600px;">
+		</div> -->
+	</div> 
+</body>
+<html> 
+

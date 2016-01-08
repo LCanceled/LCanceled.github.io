@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<script type="text/javascript" src="webgl_utils.js"></script>
+	<script type="text/javascript" src="glMatrix.js"></script>
+	//http://blog.softlayer.com/2012/web-development-html5-web-fonts/
+	<link href='http://fonts.googleapis.com/css?family=Mr+Bedfort|Kaushan+Script|Monsieur+La+Doulaise' rel='stylesheet' type='text/css'>
+
+	<meta charset="UTF-8">
+	
+	<title>Horizontally Scrolling Site from CSS-Tricks</title>
+	
+	<link rel="stylesheet" href="style.css">
+	
+	<script src="jquery-1.10.2.js"></script>
+	<script src="jquery.mousewheel.js"></script>
+	<script>
+	
+	$(function(){
+		$("#page-wrap").wrapInner("<table id='postsTable' cellspacing='30'><tr id='row0'>");
+		$(".post").wrap("<td class='post-cell'></td>");
+		$("body").mousewheel(function(event, delta) {
+			this.scrollLeft -= (delta * 30);
+			
+			event.preventDefault();
+		});
+	});
+
+	$(function(){    
+		/*$("body").click(function () {
+		});*/
+		var datamap = {
+			"49": "blog/p",
+			"50": "projects/p",
+			"51": "About"
+		};
+		loadElements("blog/", "p");
+		var dist = window.screen.availWidth;
+		
+		$("body").keypress(function (event) {
+			var prefix = datamap[event.which + ""];
+			if (prefix !== undefined) {
+				$.when($('body').animate({scrollLeft: dist}, 1000, "swing").promise(),
+						$('.post').fadeOut('slow').promise())
+					.done(loadElements(prefix));
+			}
+		});
+		
+		function loadElements(prefix) {
+			$('td.post-cell').remove();
+			var row = $("#row0");
+			function loadTableElements(counter) {
+				var postcell = $('<td class="post-cell">');
+				var div = $('<div class="post">').appendTo(postcell);
+				var fileName = prefix + counter + ".html";
+				$.get(fileName, function(html) {
+					div.append($('<div>').append($.parseHTML(html)).find('#Intro').contents());
+					div.append("<a href=" + fileName + " type='text/html' style='color:#000000' target='_blank'> Read more </a>");
+					postcell.hide().appendTo(row).fadeIn('slow');
+					loadTableElements(counter+1);
+				});
+			};
+			loadTableElements(0);
+		};
+	});
+	</script>
+	
+	<script type="text/javascript">
+		"use strict";
+		var gl;
+		function webGLStart() {
+			var ext;
+			var canvas = document.getElementById('Main Page');
+			try{
+				gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+				gl.viewportWidth = canvas.width;
+				gl.viewportHeight = canvas.height;
+			} catch(e) {}
+			if (!gl) {
+				alert('WebGL could not be init.');
+			}
+			try { ext = gl.getExtension("OES_texture_float");
+			} catch(e) {}
+			if ( !ext ) {alert(err + "OES_texture_float extension"); return;}
+			
+			gl.clearColor(.45, .3, 1., 1.);
+			gl.enable(gl.DEPTH_TEST);
+			gl.depthFunc(gl.LEQUAL);
+
+			$('#page-wrap')[0].style.marginLeft = window.screen.availWidth + "px";
+			
+			tick();
+		};
+		function tick() {
+			requestAnimFrame(tick);
+
+			var canvas = document.getElementById('Main Page');
+			canvas.style.position = "absolute";
+			canvas.style.left = pageXOffset+"px";
+			canvas.style.top = pageYOffset+"px";
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+			//console.log(pageXOffset);
+
+			gl.viewportWidth = window.innerWidth;
+			gl.viewportHeight = canvas.height;
+			gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		};
+	</script>
+</head>
+
+<body style="padding: 0px; vertical-align: top;" onload="webGLStart();"> <!-- onresize="resize_canvas();"> -->
+	<canvas id="Main Page" style="border: none; display:block;" width="600;" height="600;"></canvas>
+	
+	<div style="position: absolute; left: 10px; top: 10px;">
+		<div id="page-wrap" align="justify">
+		</div>
+	</div>
+</body>
+</html>

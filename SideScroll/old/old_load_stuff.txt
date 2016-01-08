@@ -1,0 +1,37 @@
+$('td.post-cell').remove();
+			
+			//$("#page-wrap").wrapInner("<table cellspacing='30'><tr>");
+			//$(".post").wrap("<td></td>");
+			//$('#page-wrap').add("span").addClass("post");
+			//$("#page-wrap").wrapInner("<table cellspacing='30'><tr>");
+			//$(".post").wrap("<td></td>");
+			
+			var row = $("#row0");
+			//pt.add("td").add("div").addClass("post");
+			//pt.append("<td class='post-cell'> <div id='p1' class='post' style='width: 500px'> </div> </td>");//.add("div").addClass("post");
+			//pt.append("<td> <div id='p2' class='post' style='width: 500px'> </div> </td>");//.add("div").addClass("post");
+			//pt.append("<td> <div id='p3' class='post' style='width: 500px'> </div> </td>");//.add("div").addClass("post");
+			//pt.append("<td> <div id='p4' class='post' style='width: 500px'> </div> </td>");//.add("div").addClass("post");
+			//pt.append("<td> <div id='p5' class='post' style='width: 500px'> </div> </td>");//.add("div").addClass("post");
+			//$('.post').hide();
+			
+			//$("#postsTable").append("<td> <div class='post'> </div> </td>");//.add("div").addClass("post");
+			//$("#postsTable").append("<td> <div class='post'> </div> </td>");
+			//$("#postsTable").append("<td> <div class='post'> </div> </td>");
+			//$("#postTable").append("div").addClass("post");
+			var postcell = $('<td class="post-cell">');
+			var div = $('<div class="post">').appendTo(postcell);
+			$.get("p1.html", function(html) {
+				div.append($('<div>').append($.parseHTML(html)).find('#Intro').contents());
+				postcell.hide().appendTo(row).fadeIn('slow');
+				console.log('hi there ' + counter);
+				counter++;
+				//$("#p1").append("HI THERE");
+				//append("<a href='p1.html'  type='text/html' style='color:#000000' target='_blank'> Read more </a>"); 
+				//$("#Intro").css({"visibility":"visible"});
+			});//.show();
+				
+				
+			//.fadeIn('slow');
+			//$.get("test.php", function(data) {$('body').append( "Name: " + data.name ).append( "Time: " + data.time ); }, "json"); 
+			//$.load("p1.html #Intro", function(data) {console.log(data)}); 
